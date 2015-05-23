@@ -165,6 +165,7 @@ nmap F :call Mydict()<CR>
 let g:clang_use_library=1
 let g:clang_debug=1
 let g:clang_library_path="/usr/lib"
+"let g:clang_complete_copen=1
 
 " tlist
 nmap tl :TlistToggle<CR>
@@ -211,18 +212,10 @@ highlight SyntasticErrorLine guibg=#2f0000
 "for vim7.4
 set backspace=indent,eol,start
 
-"pyflake
-"let g:pyflakes_use_quickfix = 0
-
-"pydiction
-"let g:pydiction_location = '~/.vim/complete-dict'
-"defalut g:pydiction_menu_height == 15
-"let g:pydiction_menu_height = 20
 "选中搜索
 vnoremap  *  y/<C-R>=escape(@", '\\/.*$^~[]')<CR><CR>
 vnoremap  #  y?<C-R>=escape(@", '\\/.*$^~[]')<CR><CR>
-" vim latex suite
-" http://vim-latex.sourceforge.net/index.php?subject=download&title=Download
+
 " grep总是生成文件名
 set grepprg=grep\ -nH\ $*
 let g:tex_flavor='latex'
@@ -230,5 +223,9 @@ set iskeyword+=:
 autocmd BufEnter *.tex set sw=2
 
 "TaskList
-nmap td <ESC>:TaskList<CR>
+nmap td :TaskList<CR>
 
+"Errors
+nmap E :Errors<CR>
+nmap en :lnext<CR>zO
+nmap ep :lprevious<CR>zO
