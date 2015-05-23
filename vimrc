@@ -40,10 +40,10 @@ let Tlist_Inc_Windith=0
 let Tlist_File_Fold_Auto_Close=1
 "let g:winManagerWindowLayout='NERDTree|TagList,BufExplorer'
 "let g:winManagerWindowLayout='FileExplorer|TagList,BufExplorer'
-let g:winManagerWindowLayout='NERDTree|TagList,BufExplorer'
+"let g:winManagerWindowLayout='NERDTree|TagList,BufExplorer'
 
-"nmap wm :WMToggle<CR>
-"nmap nt :NERDTree<CR>
+nmap wm :WMToggle<CR>
+nmap nt :NERDTreeToggle<CR>
 
 
 "nnoremap <silent>  :TlistOpen<CR>
@@ -149,7 +149,7 @@ au BufReadPost *
 
 "sdcv
 function! Mydict()
-	let expl=system('sudo sdcv -n ' .
+	let expl=system('sdcv -n ' .
 		\  expand("<cword>"))
 	windo if
 		\ expand("%")=="diCt-tmp" |
@@ -169,7 +169,14 @@ let g:clang_library_path="/usr/lib"
 " tlist
 nmap tl :TlistToggle<CR>
 "ctags
-nmap <F2> <Esc>:!sudo ctags -R *<CR>
+"nmap <F2> <Esc>:! ctags -R *<CR>
+"for echofunc.vim
+nmap <F2> <Esc>:! ctags -R --fields=+lS<CR>
+"ctags -I __THROW --file-scope=yes --langmap=c:+.h --languages=c,c++ --links=yes --c-kinds=+p --fields=+lS  -R -f ~/.vim/systags /usr/include /usr/local/include
+set tags+=~/.vim/systags
+" echofunc
+let g:EchoFuncKeyNext=''
+let g:EchoFuncAutoStartBalloonDeclaration = 1
 "cscope
 set cscopequickfix=s-,c-,d-,i-,t-,e-
 set cscopetag
@@ -196,7 +203,7 @@ nmap <C-_>d :cs find d <C-R>=expand("<cword>")<CR><CR> :cw <CR>
 "消除查找选中
 nmap <F4> :noh<CR>
 
-"synatasti
+"synatastic
 call pathogen#infect()
 let g:syntastic_check_on_open=1
 highlight SyntasticErrorLine guibg=#2f0000
@@ -208,6 +215,20 @@ set backspace=indent,eol,start
 "let g:pyflakes_use_quickfix = 0
 
 "pydiction
-let g:pydiction_location = '~/.vim/complete-dict'
+"let g:pydiction_location = '~/.vim/complete-dict'
 "defalut g:pydiction_menu_height == 15
 "let g:pydiction_menu_height = 20
+"选中搜索
+vnoremap  *  y/<C-R>=escape(@", '\\/.*$^~[]')<CR><CR>
+vnoremap  #  y?<C-R>=escape(@", '\\/.*$^~[]')<CR><CR>
+" vim latex suite
+" http://vim-latex.sourceforge.net/index.php?subject=download&title=Download
+" grep总是生成文件名
+set grepprg=grep\ -nH\ $*
+let g:tex_flavor='latex'
+set iskeyword+=:
+autocmd BufEnter *.tex set sw=2
+
+"TaskList
+nmap td <ESC>:TaskList<CR>
+
