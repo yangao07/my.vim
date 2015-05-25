@@ -54,8 +54,9 @@ set nocompatible
 filetype off
 set rtp+=~/.vim/bundle/vundle
 call vundle#rc()
-Bundle 'gmarik/vundle'
-Bundle "scrooloose/syntastic"
+"Bundle 'gmarik/vundle'
+"Bundle "scrooloose/syntastic"
+Bundle "Valloric/YouCompleteMe"
 
 "设置自动补全
 filetype plugin indent on
@@ -162,9 +163,9 @@ endfunction
 nmap F :call Mydict()<CR>
 
 "clang
-let g:clang_use_library=1
-let g:clang_debug=1
-let g:clang_library_path="/usr/lib"
+"let g:clang_use_library=1
+"let g:clang_debug=1
+"let g:clang_library_path="/usr/lib"
 "let g:clang_complete_copen=1
 
 " tlist
@@ -226,6 +227,15 @@ autocmd BufEnter *.tex set sw=2
 nmap td :TaskList<CR>
 
 "Errors
+nmap ec :lclose<CR>
 nmap E :Errors<CR>
 nmap en :lnext<CR>zO
 nmap ep :lprevious<CR>zO
+"YouCompleteMe
+let g:ycm_global_ycm_extra_conf = '~/.vim/bundle/YouCompleteMe/third_party/ycmd/cpp/ycm/.ycm_extra_conf.py'
+let g:ycm_collect_identifiers_from_tags_files = 1
+let g:ycm_seed_identifiers_with_syntax = 1
+let g:ycm_confirm_extra_conf = 0
+let g:ycm_always_populate_location_list = 1
+let g:ycm_min_num_of_chars_for_completion = 2
+let g:ycm_complete_in_comments = 1
