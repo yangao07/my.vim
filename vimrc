@@ -54,9 +54,10 @@ set nocompatible
 filetype off
 set rtp+=~/.vim/bundle/vundle
 call vundle#rc()
-"Bundle 'gmarik/vundle'
-"Bundle "scrooloose/syntastic"
+Bundle 'gmarik/vundle'
+Bundle "scrooloose/syntastic"
 Bundle "Valloric/YouCompleteMe"
+"Bundle "bling/vim-airline" 
 
 "设置自动补全
 filetype plugin indent on
@@ -163,10 +164,10 @@ endfunction
 nmap F :call Mydict()<CR>
 
 "clang
-"let g:clang_use_library=1
-"let g:clang_debug=1
-"let g:clang_library_path="/usr/lib"
-"let g:clang_complete_copen=1
+let g:clang_use_library=1
+let g:clang_debug=0
+let g:clang_library_path="/usr/lib"
+let g:clang_complete_copen=0
 
 " tlist
 nmap tl :TlistToggle<CR>
@@ -175,10 +176,11 @@ nmap tl :TlistToggle<CR>
 "for echofunc.vim
 nmap <F2> <Esc>:! ctags -R --fields=+lS<CR>
 "ctags -I __THROW --file-scope=yes --langmap=c:+.h --languages=c,c++ --links=yes --c-kinds=+p --fields=+lS  -R -f ~/.vim/systags /usr/include /usr/local/include
-set tags+=~/.vim/systags
+"set tags+=~/.vim/systags
 " echofunc
 let g:EchoFuncKeyNext=''
-let g:EchoFuncAutoStartBalloonDeclaration = 1
+let g:EchoFuncShowOnStatus=1
+"set statusline+=%{EchoFuncGetStatusLine()}
 "cscope
 set cscopequickfix=s-,c-,d-,i-,t-,e-
 set cscopetag
@@ -186,7 +188,7 @@ nmap <F3> <Esc>:!cscope -Rbq <CR> :cs add ./cscope.out . <CR>
 "查找本C字符(可以跳过注释)
 nmap <C-_>s :cs find s <C-R>=expand("<cword>")<CR><CR> :cw <CR>	
 "查找本定义, 对于多条定义的函数, 需要选择定义位置,因此去掉后面直接进入定义的代码
-nmap <C-_>g :cs find g <C-R>=expand("<cword>")<CR>
+nmap <C-_>g :cs find g <C-R>=expand("<cword>")<CR><CR>
 "<CR> :cw <CR>
 
 "查找调用本函数的函数
@@ -208,7 +210,7 @@ nmap <F4> :noh<CR>
 "synatastic
 call pathogen#infect()
 let g:syntastic_check_on_open=1
-highlight SyntasticErrorLine guibg=#2f0000
+"highlight SyntasticErrorLine guibg=#2f0000
 
 "for vim7.4
 set backspace=indent,eol,start
@@ -227,15 +229,39 @@ autocmd BufEnter *.tex set sw=2
 nmap td :TaskList<CR>
 
 "Errors
+nmap eo :lopen<CR>
 nmap ec :lclose<CR>
 nmap E :Errors<CR>
 nmap en :lnext<CR>zO
 nmap ep :lprevious<CR>zO
 "YouCompleteMe
-let g:ycm_global_ycm_extra_conf = '~/.vim/bundle/YouCompleteMe/third_party/ycmd/cpp/ycm/.ycm_extra_conf.py'
-let g:ycm_collect_identifiers_from_tags_files = 1
-let g:ycm_seed_identifiers_with_syntax = 1
-let g:ycm_confirm_extra_conf = 0
-let g:ycm_always_populate_location_list = 1
-let g:ycm_min_num_of_chars_for_completion = 2
-let g:ycm_complete_in_comments = 1
+let g:ycm_global_ycm_extra_conf='~/.vim/bundle/YouCompleteMe/third_party/ycmd/cpp/ycm/.ycm_extra_conf.py'
+let g:ycm_collect_identifiers_from_tags_files=1
+let g:ycm_seed_identifiers_with_syntax=1
+let g:ycm_confirm_extra_conf=0
+let g:ycm_always_populate_location_list=1
+let g:ycm_min_num_of_chars_for_completion=2
+let g:ycm_complete_in_comments=1
+highlight YcmErrorSection ctermbg=blue
+highlight YcmErrorline ctermbg=blue
+"colorscheme
+"set t_Co=256  
+"statusline
+"Format the statusline
+"Nice statusbar
+set laststatus=2
+set statusline=%{EchoFuncGetStatusLine()}
+"\ %F%m%r%h%w\ [FORMAT=%{&ff}]\ [TYPE=%Y]\ [POS=%l,%v][%p%%]\ %{strftime(\"%d/%m/%y\ -\ %H:%M\")}   "状态行显示的内容
+
+"set statusline+=%2*%-3.3n%0*/ " buffer number
+"set statusline+=%f/ " file name
+"set statusline+=%h%1*%m%r%w%0* " flag
+"set statusline+=[
+"if v:version >= 600
+"    set statusline+=%{strlen(&ft)?&ft:'none'}, " filetype
+"    set statusline+=%{&encoding}, " encoding
+"endif
+"set statusline+=%{&fileformat}] " file format
+"set statusline+=%= " right align
+"set statusline+=%2*0x%-8B/ " current char
+"set statusline+=%-14.(%l,%c%V%)/ %<%P " offset

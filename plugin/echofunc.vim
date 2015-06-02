@@ -241,7 +241,8 @@ function! s:CallTagList(str)
 endfunction
 
 function! s:GetFunctions(fun, fn_only)
-    let w:res=[]
+    " modifyed by GY
+    "let w:res=[]
     let funpat=escape(a:fun,'[\*~^')
     let ftags=s:CallTagList('^'.funpat.'$')
 
@@ -288,6 +289,8 @@ function! s:GetFunctions(fun, fn_only)
     if fil_tag==[]
         return
     endif
+    " modifyed by GY
+    let w:res=[]
     let w:count=1
     for i in fil_tag
         if has_key(i,'kind') && has_key(i,'name') && has_key(i,'signature')

@@ -324,3 +324,4 @@ command! -bar -bang -range=1 -nargs=1 -complete=customlist,s:Findcomplete Vpedit
 command! -bar -bang -range=1 -nargs=1 -complete=customlist,s:Findcomplete Vread    :execute s:find(<count>,'read',<q-args>,<bang>1)
 
 " vim:set et sw=2:
+
