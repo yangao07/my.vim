@@ -129,7 +129,7 @@ let g:C_Ctrl_j='off'
 inoremap <c-h> <left>
 inoremap <c-l> <right>
 inoremap <c-k> <up>
-inoremap <c-j> <down>
+inoremap <c-n> <down>
 
 
 "自动补全括号、引号
@@ -165,9 +165,9 @@ nmap F :call Mydict()<CR>
 
 "clang
 let g:clang_use_library=1
-let g:clang_debug=0
+let g:clang_debug=1
 let g:clang_library_path="/usr/lib"
-let g:clang_complete_copen=0
+let g:clang_complete_copen=1
 
 " tlist
 nmap tl :TlistToggle<CR>
@@ -176,11 +176,12 @@ nmap tl :TlistToggle<CR>
 "for echofunc.vim
 nmap <F2> <Esc>:! ctags -R --fields=+lS<CR>
 "ctags -I __THROW --file-scope=yes --langmap=c:+.h --languages=c,c++ --links=yes --c-kinds=+p --fields=+lS  -R -f ~/.vim/systags /usr/include /usr/local/include
-"set tags+=~/.vim/systags
+"system tags
+nmap <F5> <Esc>:set tags+=~/.vim/systags<CR>
+nmap <F6> <Esc>:set tags=./tags<CR>
 " echofunc
 let g:EchoFuncKeyNext=''
 let g:EchoFuncShowOnStatus=1
-"set statusline+=%{EchoFuncGetStatusLine()}
 "cscope
 set cscopequickfix=s-,c-,d-,i-,t-,e-
 set cscopetag
@@ -189,6 +190,7 @@ nmap <F3> <Esc>:!cscope -Rbq <CR> :cs add ./cscope.out . <CR>
 nmap <C-_>s :cs find s <C-R>=expand("<cword>")<CR><CR> :cw <CR>	
 "查找本定义, 对于多条定义的函数, 需要选择定义位置,因此去掉后面直接进入定义的代码
 nmap <C-_>g :cs find g <C-R>=expand("<cword>")<CR><CR>
+nmap fc :cclose<CR>
 "<CR> :cw <CR>
 
 "查找调用本函数的函数
@@ -211,6 +213,11 @@ nmap <F4> :noh<CR>
 call pathogen#infect()
 let g:syntastic_check_on_open=1
 "highlight SyntasticErrorLine guibg=#2f0000
+let g:syntastic_error_symbol='✗'
+let g:syntastic_warning_symbol='⚠'
+"whether to show balloons
+"let g:syntastic_enable_balloons=1
+
 
 "for vim7.4
 set backspace=indent,eol,start
@@ -235,6 +242,7 @@ nmap E :Errors<CR>
 nmap en :lnext<CR>zO
 nmap ep :lprevious<CR>zO
 "YouCompleteMe
+"let g:ycm_global_ycm_extra_conf='~/.vim/bundle/YouCompleteMe/third_party/ycmd/examples/.ycm_extra_conf.py'
 let g:ycm_global_ycm_extra_conf='~/.vim/bundle/YouCompleteMe/third_party/ycmd/cpp/ycm/.ycm_extra_conf.py'
 let g:ycm_collect_identifiers_from_tags_files=1
 let g:ycm_seed_identifiers_with_syntax=1
@@ -242,7 +250,7 @@ let g:ycm_confirm_extra_conf=0
 let g:ycm_always_populate_location_list=1
 let g:ycm_min_num_of_chars_for_completion=2
 let g:ycm_complete_in_comments=1
-highlight YcmErrorSection ctermbg=blue
+highlight YcmErrorSection ctermbg=black
 highlight YcmErrorline ctermbg=blue
 "colorscheme
 "set t_Co=256  
@@ -250,8 +258,27 @@ highlight YcmErrorline ctermbg=blue
 "Format the statusline
 "Nice statusbar
 set laststatus=2
-set statusline=%{EchoFuncGetStatusLine()}
-"\ %F%m%r%h%w\ [FORMAT=%{&ff}]\ [TYPE=%Y]\ [POS=%l,%v][%p%%]\ %{strftime(\"%d/%m/%y\ -\ %H:%M\")}   "状态行显示的内容
+set ruler
+set statusline+=%{EchoFuncGetStatusLine()}
+"\ %F%m%r%h%w\ [FORMAT=%{&ff}]\ [TYPE=%Y]\ [POS=%l,%v][%p%%]\ %{strftime(\"%d/%m/%y\ -\ %parse_SAM_resultH:%M\")}   "状态行显示的内容
+"set statusline=%{EchoFuncGetStatusLine()}\ [%F%m%r%h%w]\ [FORMAT=%{&ff}]\ [TYPE=%Y]\ [ASCII=\%03.3b]\ [HEX=\%02.2B]\ [POS=%04l,%04v][%p%%]\ [LN=%L]
+"
+"set statusline=%<%F%h%m%r%h%w%y\ %{&ff}\ %{strftime(\"%c\",getftime(expand(\"%:p\")))}%=\ lin:%l\,%L\ col:%c%V\ pos:%o\ ascii:%b\ %P
+hi StatuslineBufNr     cterm=none    ctermbg=cyan   ctermfg=black   gui=none guibg=#840c0c guifg=#ffffff
+hi StatuslineFlag      cterm=none    ctermbg=white  ctermfg=red     gui=none guibg=#bc5b4c guifg=#ffffff
+hi StatuslinePath      cterm=none    ctermbg=cyan   ctermfg=yellow   gui=none guibg=#8d6c47 guifg=black
+"hi StatuslineFileName  cterm=none    ctermbg=blue   ctermfg=white   gui=none guibg=#d59159 guifg=black
+hi StatuslineFileEnc   cterm=none    ctermbg=yellow ctermfg=black   gui=none guibg=#ffff77 guifg=black
+hi StatuslineFileType  cterm=bold    ctermbg=black  ctermfg=white   gui=none guibg=#acff84 guifg=black
+"hi StatuslineTermEnc   cterm=none    ctermbg=yellow ctermfg=black   gui=none guibg=#77cf77 guifg=black
+"hi StatuslineChar      cterm=none    ctermbg=black  ctermfg=red     gui=none guibg=#66b06f guifg=black
+"hi StatuslineSyn       cterm=none    ctermbg=green  ctermfg=black   gui=none guibg=#60af9f guifg=black
+"hi StatuslineRealSyn   cterm=none    ctermbg=cyan   ctermfg=black   gui=none guibg=#5881b7 guifg=black
+hi StatusLine          cterm=none    ctermbg=blue   ctermfg=white   gui=none guibg=#3f4d77 guifg=#729eb0 
+hi StatuslineTime      cterm=none    ctermbg=cyan   ctermfg=black   gui=none guibg=#3a406e guifg=#000000
+hi StatuslineSomething cterm=reverse ctermfg=white  ctermbg=darkred gui=none guibg=#c0c0f0 guifg=black
+hi StatusLineNC                                                     gui=none guibg=#304050 guifg=#70a0a0
+
 
 "set statusline+=%2*%-3.3n%0*/ " buffer number
 "set statusline+=%f/ " file name

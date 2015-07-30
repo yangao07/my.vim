@@ -396,6 +396,9 @@ function! EchoFunc()
     let str = substitute(str, '\m\s*(\+$','', "")
     let name = s:GetFuncName(str)
     call s:GetFunctions(name, 1)
+    if !exists("w:res")
+        return ''
+    endif
     if len(w:res) != 0
         let b:echoline = line('.')
         let b:echocol = index
