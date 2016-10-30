@@ -3,6 +3,9 @@ import vim
 import time
 import threading
 import os
+import shlex
+
+from kinds import kinds
 
 # Check if libclang is able to find the builtin include files.
 #
@@ -25,6 +28,9 @@ def canFindBuiltinHeaders(index, args = []):
 # for all manual installations (the ones where the builtin header path problem
 # is very common) as well as a set of very common distributions.
 def getBuiltinHeaderPath(library_path):
+  if os.path.isfile(library_path):
+    library_path = os.path.dirname(library_path)
+
   knownPaths = [
           library_path + "/../lib/clang",  # default value
           library_path + "/../clang",      # gentoo
@@ -36,15 +42,10 @@ def getBuiltinHeaderPath(library_path):
 
   for path in knownPaths:
     try:
-      files = os.listdir(path)
-      if len(files) >= 1:
-        files = sorted(files)
-        subDir = files[-1]
-      else:
-        subDir = '.'
-      path = path + "/" + subDir + "/include/"
-      arg = "-I" + path
-      if canFindBuiltinHeaders(index, [arg]):
+      subDirs = [f for f in os.listdir(path) if os.path.isdir(path + "/" + f)]
+      subDirs = sorted(subDirs) or ['.']
+      path = path + "/" + subDirs[-1] + "/include"
+      if canFindBuiltinHeaders(index, ["-I" + path]):
         return path
     except:
       pass
@@ -58,7 +59,10 @@ def initClangComplete(clang_complete_flags, clang_compilation_database, \
   debug = int(vim.eval("g:clang_debug")) == 1
 
   if library_path:
-    Config.set_library_path(library_path)
+    if os.path.isdir(library_path):
+      Config.set_library_path(library_path)
+    else:
+      Config.set_library_file(library_path)
 
   Config.set_compatibility_check(False)
 
@@ -188,23 +192,9 @@ def getCurrentTranslationUnit(args, currentFile, fileName, timer,
   return tu
 
 def splitOptions(options):
-  optsList = []
-  opt = ""
-  quoted = False
-
-  for char in options:
-    if char == ' ' and not quoted:
-      if opt != "":
-        optsList += [opt]
-        opt = ""
-      continue
-    elif char == '"':
-      quoted = not quoted
-    opt += char
-
-  if opt != "":
-    optsList += [opt]
-  return optsList
+  # Use python's shell command lexer to correctly split the list of options in
+  # accordance with the POSIX standard
+  return shlex.split(options)
 
 def getQuickFix(diagnostic):
   # Some diagnostics have no file, e.g. "too many errors emitted, stopping now"
@@ -278,9 +268,11 @@ def getCurrentQuickFixList():
 #   'args' : compiler arguments.
 #            Compilation database returns the complete command line. We need
 #            to filter at least the compiler invocation, the '-o' + output
-#            file, the input file and the '-c' arguments. Note : we behave
-#            differently from cc_args.py which only keeps '-I', '-D' and
-#            '-include' options.
+#            file, the input file and the '-c' arguments. We alter -I paths
+#            to make them absolute, so that we can launch clang from wherever
+#            we are.
+#            Note : we behave differently from cc_args.py which only keeps
+#            '-I', '-D' and '-include' options.
 #
 #    'cwd' : the compiler working directory
 #
@@ -306,6 +298,12 @@ def getCompilationDBParams(fileName):
         if arg == '-o':
           skip_next = 1;
           continue
+        if arg.startswith('-I'):
+          includePath = arg[2:]
+          if not os.path.isabs(includePath):
+            includePath = os.path.normpath(os.path.join(cwd, includePath))
+          args.append('-I'+includePath)
+          continue
         args.append(arg)
       getCompilationDBParams.last_query = { 'args': args, 'cwd': cwd }
 
@@ -316,20 +314,6 @@ def getCompilationDBParams(fileName):
   return { 'args': list(query['args']), 'cwd': query['cwd']}
 
 getCompilationDBParams.last_query = { 'args': [], 'cwd': None }
-
-# A context manager to handle directory changes safely
-from contextlib import contextmanager
-@contextmanager
-def workingDir(dir):
-  savedPath = None
-  if dir != None:
-    savedPath = os.getcwd()
-    os.chdir(dir)
-  try:
-    yield
-  finally:
-    if savedPath != None:
-      os.chdir(savedPath)
 
 def getCompileParams(fileName):
   global builtinHeaderPath
@@ -351,10 +335,9 @@ def updateCurrentDiagnostics():
   params = getCompileParams(vim.current.buffer.name)
   timer = CodeCompleteTimer(debug, vim.current.buffer.name, -1, -1, params)
 
-  with workingDir(params['cwd']):
-    with libclangLock:
-      getCurrentTranslationUnit(params['args'], getCurrentFile(),
-                                vim.current.buffer.name, timer, update = True)
+  with libclangLock:
+    getCurrentTranslationUnit(params['args'], getCurrentFile(),
+                              vim.current.buffer.name, timer, update = True)
   timer.finish()
 
 def getCurrentCompletionResults(line, column, args, currentFile, fileName,
@@ -377,6 +360,20 @@ def formatResult(result):
   abbr = ""
   word = ""
   info = ""
+  place_markers_for_optional_args = int(vim.eval("g:clang_complete_optional_args_in_snippets")) == 1
+
+  def roll_out_optional(chunks):
+    result = []
+    word = ""
+    for chunk in chunks:
+      if chunk.isKindInformative() or chunk.isKindResultType() or chunk.isKindTypedText():
+        continue
+
+      word += chunk.spelling
+      if chunk.isKindOptional():
+        result += roll_out_optional(chunk.string)
+
+    return [word] + result
 
   for chunk in result.string:
 
@@ -391,6 +388,12 @@ def formatResult(result):
 
     if chunk.isKindTypedText():
       abbr = chunk_spelling
+
+    if chunk.isKindOptional():
+      for optional_arg in roll_out_optional(chunk.string):
+        if place_markers_for_optional_args:
+          word += snippetsFormatPlaceHolder(optional_arg)
+        info += optional_arg + "=?"
 
     if chunk.isKindPlaceHolder():
       word += snippetsFormatPlaceHolder(chunk_spelling)
@@ -420,6 +423,12 @@ def formatResult(result):
 class CompleteThread(threading.Thread):
   def __init__(self, line, column, currentFile, fileName, params, timer):
     threading.Thread.__init__(self)
+    # Complete threads are daemon threads. Python and consequently vim does not
+    # wait for daemon threads to finish execution when existing itself. As
+    # clang may compile for a while, we do not have to wait for the compilation
+    # to finish before vim can quit. Before adding this flags, vim was hanging
+    # for a couple of seconds before it exited.
+    self.daemon = True
     self.line = line
     self.column = column
     self.currentFile = currentFile
@@ -431,21 +440,20 @@ class CompleteThread(threading.Thread):
 
   def run(self):
     with libclangLock:
-      with workingDir(self.cwd):
-        if self.line == -1:
-          # Warm up the caches. For this it is sufficient to get the
-          # current translation unit. No need to retrieve completion
-          # results.  This short pause is necessary to allow vim to
-          # initialize itself.  Otherwise we would get: E293: block was
-          # not locked The user does not see any delay, as we just pause
-          # a background thread.
-          time.sleep(0.1)
-          getCurrentTranslationUnit(self.args, self.currentFile, self.fileName,
-                                    self.timer)
-        else:
-          self.result = getCurrentCompletionResults(self.line, self.column,
-                                                    self.args, self.currentFile,
-                                                    self.fileName, self.timer)
+      if self.line == -1:
+        # Warm up the caches. For this it is sufficient to get the
+        # current translation unit. No need to retrieve completion
+        # results.  This short pause is necessary to allow vim to
+        # initialize itself.  Otherwise we would get: E293: block was
+        # not locked The user does not see any delay, as we just pause
+        # a background thread.
+        time.sleep(0.1)
+        getCurrentTranslationUnit(self.args, self.currentFile, self.fileName,
+                                  self.timer)
+      else:
+        self.result = getCurrentCompletionResults(self.line, self.column,
+                                                  self.args, self.currentFile,
+                                                  self.fileName, self.timer)
 
 def WarmupCache():
   params = getCompileParams(vim.current.buffer.name)
@@ -453,7 +461,6 @@ def WarmupCache():
   t = CompleteThread(-1, -1, getCurrentFile(), vim.current.buffer.name,
                      params, timer)
   t.start()
-
 
 def getCurrentCompletions(base):
   global debug
@@ -510,20 +517,25 @@ def getAbbr(strings):
       return chunks.spelling
   return ""
 
-def jumpToLocation(filename, line, column):
-  if filename != vim.current.buffer.name:
-    try:
-      vim.command("edit %s" % filename)
-    except:
-      # For some unknown reason, whenever an exception occurs in
-      # vim.command, vim goes crazy and output tons of useless python
-      # errors, catch those.
-      return
+def jumpToLocation(filename, line, column, preview):
+  filenameEscaped = filename.replace(" ", "\\ ")
+  if preview:
+    command = "pedit +%d %s" % (line, filenameEscaped)
+  elif filename != vim.current.buffer.name:
+    command = "edit %s" % filenameEscaped
   else:
-    vim.command("normal m'")
-  vim.current.window.cursor = (line, column - 1)
+    command = "normal m'"
+  try:
+    vim.command(command)
+  except:
+    # For some unknown reason, whenever an exception occurs in
+    # vim.command, vim goes crazy and output tons of useless python
+    # errors, catch those.
+    return
+  if not preview:
+    vim.current.window.cursor = (line, column - 1)
 
-def gotoDeclaration():
+def gotoDeclaration(preview=True):
   global debug
   debug = int(vim.eval("g:clang_debug")) == 1
   params = getCompileParams(vim.current.buffer.name)
@@ -531,249 +543,25 @@ def gotoDeclaration():
   timer = CodeCompleteTimer(debug, vim.current.buffer.name, line, col, params)
 
   with libclangLock:
-    with workingDir(params['cwd']):
-      tu = getCurrentTranslationUnit(params['args'], getCurrentFile(),
-                                     vim.current.buffer.name, timer,
-                                     update = True)
-      if tu is None:
-        print "Couldn't get the TranslationUnit"
-        return
+    tu = getCurrentTranslationUnit(params['args'], getCurrentFile(),
+                                   vim.current.buffer.name, timer,
+                                   update = True)
+    if tu is None:
+      print "Couldn't get the TranslationUnit"
+      return
 
-      f = File.from_name(tu, vim.current.buffer.name)
-      loc = SourceLocation.from_position(tu, f, line, col + 1)
-      cursor = Cursor.from_location(tu, loc)
-      defs = [cursor.get_definition(), cursor.referenced]
+    f = File.from_name(tu, vim.current.buffer.name)
+    loc = SourceLocation.from_position(tu, f, line, col + 1)
+    cursor = Cursor.from_location(tu, loc)
+    defs = [cursor.get_definition(), cursor.referenced]
 
-      for d in defs:
-        if d is not None and loc != d.location:
-          loc = d.location
-          if loc.file is not None:
-            jumpToLocation(loc.file.name, loc.line, loc.column)
-            break
+    for d in defs:
+      if d is not None and loc != d.location:
+        loc = d.location
+        if loc.file is not None:
+          jumpToLocation(loc.file.name, loc.line, loc.column, preview)
+        break
 
   timer.finish()
-
-# Manually extracted from Index.h
-# Doing it by hand is long, error prone and horrible, we must find a way
-# to do that automatically.
-kinds = dict({                                                                 \
-# Declarations                                                                 \
- 1 : 't',  # CXCursor_UnexposedDecl (A declaration whose specific kind is not  \
-           # exposed via this interface)                                       \
- 2 : 't',  # CXCursor_StructDecl (A C or C++ struct)                           \
- 3 : 't',  # CXCursor_UnionDecl (A C or C++ union)                             \
- 4 : 't',  # CXCursor_ClassDecl (A C++ class)                                  \
- 5 : 't',  # CXCursor_EnumDecl (An enumeration)                                \
- 6 : 'm',  # CXCursor_FieldDecl (A field (in C) or non-static data member      \
-           # (in C++) in a struct, union, or C++ class)                        \
- 7 : 'e',  # CXCursor_EnumConstantDecl (An enumerator constant)                \
- 8 : 'f',  # CXCursor_FunctionDecl (A function)                                \
- 9 : 'v',  # CXCursor_VarDecl (A variable)                                     \
-10 : 'a',  # CXCursor_ParmDecl (A function or method parameter)                \
-11 : '11', # CXCursor_ObjCInterfaceDecl (An Objective-C @interface)            \
-12 : '12', # CXCursor_ObjCCategoryDecl (An Objective-C @interface for a        \
-           # category)                                                         \
-13 : '13', # CXCursor_ObjCProtocolDecl (An Objective-C @protocol declaration)  \
-14 : '14', # CXCursor_ObjCPropertyDecl (An Objective-C @property declaration)  \
-15 : '15', # CXCursor_ObjCIvarDecl (An Objective-C instance variable)          \
-16 : '16', # CXCursor_ObjCInstanceMethodDecl (An Objective-C instance method)  \
-17 : '17', # CXCursor_ObjCClassMethodDecl (An Objective-C class method)        \
-18 : '18', # CXCursor_ObjCImplementationDec (An Objective-C @implementation)   \
-19 : '19', # CXCursor_ObjCCategoryImplDecll (An Objective-C @implementation    \
-           # for a category)                                                   \
-20 : 't',  # CXCursor_TypedefDecl (A typedef)                                  \
-21 : 'f',  # CXCursor_CXXMethod (A C++ class method)                           \
-22 : 'n',  # CXCursor_Namespace (A C++ namespace)                              \
-23 : '23', # CXCursor_LinkageSpec (A linkage specification, e.g. 'extern "C"') \
-24 : '+',  # CXCursor_Constructor (A C++ constructor)                          \
-25 : '~',  # CXCursor_Destructor (A C++ destructor)                            \
-26 : '26', # CXCursor_ConversionFunction (A C++ conversion function)           \
-27 : 'a',  # CXCursor_TemplateTypeParameter (A C++ template type parameter)    \
-28 : 'a',  # CXCursor_NonTypeTemplateParameter (A C++ non-type template        \
-           # parameter)                                                        \
-29 : 'a',  # CXCursor_TemplateTemplateParameter (A C++ template template       \
-           # parameter)                                                        \
-30 : 'f',  # CXCursor_FunctionTemplate (A C++ function template)               \
-31 : 'p',  # CXCursor_ClassTemplate (A C++ class template)                     \
-32 : '32', # CXCursor_ClassTemplatePartialSpecialization (A C++ class template \
-           # partial specialization)                                           \
-33 : 'n',  # CXCursor_NamespaceAlias (A C++ namespace alias declaration)       \
-34 : '34', # CXCursor_UsingDirective (A C++ using directive)                   \
-35 : '35', # CXCursor_UsingDeclaration (A C++ using declaration)               \
-36 : 't',  # CXCursor_TypeAliasDecl (A C++ alias declaration)                  \
-37 : '37', # CXCursor_ObjCSynthesizeDecl (An Objective-C synthesize definition)\
-38 : '38', # CXCursor_ObjCDynamicDecl (An Objective-C dynamic definition)      \
-39 : '39', # CXCursor_CXXAccessSpecifier (An access specifier)                 \
-                                                                               \
-# References                                                                   \
-40 : '40', # CXCursor_ObjCSuperClassRef                                        \
-41 : '41', # CXCursor_ObjCProtocolRef                                          \
-42 : '42', # CXCursor_ObjCClassRef                                             \
-43 : '43', # CXCursor_TypeRef                                                  \
-44 : '44', # CXCursor_CXXBaseSpecifier                                         \
-45 : '45', # CXCursor_TemplateRef (A reference to a class template, function   \
-           # template, template template parameter, or class template partial  \
-           # specialization)                                                   \
-46 : '46', # CXCursor_NamespaceRef (A reference to a namespace or namespace    \
-           # alias)                                                            \
-47 : '47', # CXCursor_MemberRef (A reference to a member of a struct, union,   \
-           # or class that occurs in some non-expression context, e.g., a      \
-           # designated initializer)                                           \
-48 : '48', # CXCursor_LabelRef (A reference to a labeled statement)            \
-49 : '49', # CXCursor_OverloadedDeclRef (A reference to a set of overloaded    \
-           # functions or function templates that has not yet been resolved to \
-           # a specific function or function template)                         \
-50 : '50', # CXCursor_VariableRef                                              \
-                                                                               \
-# Error conditions                                                             \
-#70 : '70', # CXCursor_FirstInvalid                                            \
-70 : '70',  # CXCursor_InvalidFile                                             \
-71 : '71',  # CXCursor_NoDeclFound                                             \
-72 : 'u',   # CXCursor_NotImplemented                                          \
-73 : '73',  # CXCursor_InvalidCode                                             \
-                                                                               \
-# Expressions                                                                  \
-100 : '100',  # CXCursor_UnexposedExpr (An expression whose specific kind is   \
-              # not exposed via this interface)                                \
-101 : '101',  # CXCursor_DeclRefExpr (An expression that refers to some value  \
-              # declaration, such as a function, varible, or enumerator)       \
-102 : '102',  # CXCursor_MemberRefExpr (An expression that refers to a member  \
-              # of a struct, union, class, Objective-C class, etc)             \
-103 : '103',  # CXCursor_CallExpr (An expression that calls a function)        \
-104 : '104',  # CXCursor_ObjCMessageExpr (An expression that sends a message   \
-              # to an Objective-C object or class)                             \
-105 : '105',  # CXCursor_BlockExpr (An expression that represents a block      \
-              # literal)                                                       \
-106 : '106',  # CXCursor_IntegerLiteral (An integer literal)                   \
-107 : '107',  # CXCursor_FloatingLiteral (A floating point number literal)     \
-108 : '108',  # CXCursor_ImaginaryLiteral (An imaginary number literal)        \
-109 : '109',  # CXCursor_StringLiteral (A string literal)                      \
-110 : '110',  # CXCursor_CharacterLiteral (A character literal)                \
-111 : '111',  # CXCursor_ParenExpr (A parenthesized expression, e.g. "(1)")    \
-112 : '112',  # CXCursor_UnaryOperator (This represents the unary-expression's \
-              # (except sizeof and alignof))                                   \
-113 : '113',  # CXCursor_ArraySubscriptExpr ([C99 6.5.2.1] Array Subscripting) \
-114 : '114',  # CXCursor_BinaryOperator (A builtin binary operation expression \
-              # such as "x + y" or "x <= y")                                   \
-115 : '115',  # CXCursor_CompoundAssignOperator (Compound assignment such as   \
-              # "+=")                                                          \
-116 : '116',  # CXCursor_ConditionalOperator (The ?: ternary operator)         \
-117 : '117',  # CXCursor_CStyleCastExpr (An explicit cast in C (C99 6.5.4) or a\
-              # C-style cast in C++ (C++ [expr.cast]), which uses the syntax   \
-              # (Type)expr)                                                    \
-118 : '118',  # CXCursor_CompoundLiteralExpr ([C99 6.5.2.5])                   \
-119 : '119',  # CXCursor_InitListExpr (Describes an C or C++ initializer list) \
-120 : '120',  # CXCursor_AddrLabelExpr (The GNU address of label extension,    \
-              # representing &&label)                                          \
-121 : '121',  # CXCursor_StmtExpr (This is the GNU Statement Expression        \
-              # extension: ({int X=4; X;})                                     \
-122 : '122',  # CXCursor_GenericSelectionExpr (brief Represents a C11 generic  \
-              # selection)                                                     \
-123 : '123',  # CXCursor_GNUNullExpr (Implements the GNU __null extension)     \
-124 : '124',  # CXCursor_CXXStaticCastExpr (C++'s static_cast<> expression)    \
-125 : '125',  # CXCursor_CXXDynamicCastExpr (C++'s dynamic_cast<> expression)  \
-126 : '126',  # CXCursor_CXXReinterpretCastExpr (C++'s reinterpret_cast<>      \
-              # expression)                                                    \
-127 : '127',  # CXCursor_CXXConstCastExpr (C++'s const_cast<> expression)      \
-128 : '128',  # CXCursor_CXXFunctionalCastExpr (Represents an explicit C++ type\
-              # conversion that uses "functional" notion                       \
-              # (C++ [expr.type.conv]))                                        \
-129 : '129',  # CXCursor_CXXTypeidExpr (A C++ typeid expression                \
-              # (C++ [expr.typeid]))                                           \
-130 : '130',  # CXCursor_CXXBoolLiteralExpr (brief [C++ 2.13.5] C++ Boolean    \
-              # Literal)                                                       \
-131 : '131',  # CXCursor_CXXNullPtrLiteralExpr ([C++0x 2.14.7] C++ Pointer     \
-              # Literal)                                                       \
-132 : '132',  # CXCursor_CXXThisExpr (Represents the "this" expression in C+)  \
-133 : '133',  # CXCursor_CXXThrowExpr ([C++ 15] C++ Throw Expression)          \
-134 : '134',  # CXCursor_CXXNewExpr (A new expression for memory allocation    \
-              # and constructor calls)                                         \
-135 : '135',  # CXCursor_CXXDeleteExpr (A delete expression for memory         \
-              # deallocation and destructor calls)                             \
-136 : '136',  # CXCursor_UnaryExpr (A unary expression)                        \
-137 : '137',  # CXCursor_ObjCStringLiteral (An Objective-C string literal      \
-              # i.e. @"foo")                                                   \
-138 : '138',  # CXCursor_ObjCEncodeExpr (An Objective-C \@encode expression)   \
-139 : '139',  # CXCursor_ObjCSelectorExpr (An Objective-C \@selector expression)\
-140 : '140',  # CXCursor_ObjCProtocolExpr (An Objective-C \@protocol expression)\
-141 : '141',  # CXCursor_ObjCBridgedCastExpr (An Objective-C "bridged" cast    \
-              # expression, which casts between Objective-C pointers and C     \
-              # pointers, transferring ownership in the process)               \
-142 : '142',  # CXCursor_PackExpansionExpr (Represents a C++0x pack expansion  \
-              # that produces a sequence of expressions)                       \
-143 : '143',  # CXCursor_SizeOfPackExpr (Represents an expression that computes\
-              # the length of a parameter pack)                                \
-144 : '144',  # CXCursor_LambdaExpr (Represents a C++ lambda expression that   \
-              # produces a local function object)                              \
-145 : '145',  # CXCursor_ObjCBoolLiteralExpr (Objective-c Boolean Literal)     \
-                                                                               \
-# Statements                                                                   \
-200 : '200',  # CXCursor_UnexposedStmt (A statement whose specific kind is not \
-              # exposed via this interface)                                    \
-201 : '201',  # CXCursor_LabelStmt (A labelled statement in a function)        \
-202 : '202',  # CXCursor_CompoundStmt (A group of statements like              \
-              # { stmt stmt }.                                                 \
-203 : '203',  # CXCursor_CaseStmt (A case statment)                            \
-204 : '204',  # CXCursor_DefaultStmt (A default statement)                     \
-205 : '205',  # CXCursor_IfStmt (An if statemen)                               \
-206 : '206',  # CXCursor_SwitchStmt (A switch statement)                       \
-207 : '207',  # CXCursor_WhileStmt (A while statement)                         \
-208 : '208',  # CXCursor_DoStmt (A do statement)                               \
-209 : '209',  # CXCursor_ForStmt (A for statement)                             \
-210 : '210',  # CXCursor_GotoStmt (A goto statement)                           \
-211 : '211',  # CXCursor_IndirectGotoStmt (An indirect goto statement)         \
-212 : '212',  # CXCursor_ContinueStmt (A continue statement)                   \
-213 : '213',  # CXCursor_BreakStmt (A break statement)                         \
-214 : '214',  # CXCursor_ReturnStmt (A return statement)                       \
-215 : '215',  # CXCursor_GCCAsmStmt (A GCC inline assembly statement extension)\
-216 : '216',  # CXCursor_ObjCAtTryStmt (Objective-C's overall try-catch-finally\
-              # statement.                                                     \
-217 : '217',  # CXCursor_ObjCAtCatchStmt (Objective-C's catch statement)       \
-218 : '218',  # CXCursor_ObjCAtFinallyStmt (Objective-C's finally statement)   \
-219 : '219',  # CXCursor_ObjCAtThrowStmt (Objective-C's throw statement)       \
-220 : '220',  # CXCursor_ObjCAtSynchronizedStmt (Objective-C's synchronized    \
-              # statement)                                                     \
-221 : '221',  # CXCursor_ObjCAutoreleasePoolStmt (Objective-C's autorelease    \
-              # pool statement)                                                \
-222 : '222',  # CXCursor_ObjCForCollectionStmt (Objective-C's collection       \
-              # statement)                                                     \
-223 : '223',  # CXCursor_CXXCatchStmt (C++'s catch statement)                  \
-224 : '224',  # CXCursor_CXXTryStmt (C++'s try statement)                      \
-225 : '225',  # CXCursor_CXXForRangeStmt (C++'s for (* : *) statement)         \
-226 : '226',  # CXCursor_SEHTryStmt (Windows Structured Exception Handling's   \
-              # try statement)                                                 \
-227 : '227',  # CXCursor_SEHExceptStmt (Windows Structured Exception Handling's\
-              # except statement.                                              \
-228 : '228',  # CXCursor_SEHFinallyStmt (Windows Structured Exception          \
-              # Handling's finally statement)                                  \
-229 : '229',  # CXCursor_MSAsmStmt (A MS inline assembly statement extension)  \
-230 : '230',  # CXCursor_NullStmt (The null satement ";": C99 6.8.3p3)         \
-231 : '231',  # CXCursor_DeclStmt (Adaptor class for mixing declarations with  \
-              # statements and expressions)                                    \
-                                                                               \
-# Translation unit                                                             \
-300 : '300',  # CXCursor_TranslationUnit (Cursor that represents the           \
-              # translation unit itself)                                       \
-                                                                               \
-# Attributes                                                                   \
-400 : '400',  # CXCursor_UnexposedAttr (An attribute whose specific kind is    \
-              # not exposed via this interface)                                \
-401 : '401',  # CXCursor_IBActionAttr                                          \
-402 : '402',  # CXCursor_IBOutletAttr                                          \
-403 : '403',  # CXCursor_IBOutletCollectionAttr                                \
-404 : '404',  # CXCursor_CXXFinalAttr                                          \
-405 : '405',  # CXCursor_CXXOverrideAttr                                       \
-406 : '406',  # CXCursor_AnnotateAttr                                          \
-407 : '407',  # CXCursor_AsmLabelAttr                                          \
-                                                                               \
-# Preprocessing                                                                \
-500 : '500', # CXCursor_PreprocessingDirective                                 \
-501 : 'd',   # CXCursor_MacroDefinition                                        \
-502 : '502', # CXCursor_MacroInstantiation                                     \
-503 : '503', # CXCursor_InclusionDirective                                     \
-                                                                               \
-# Modules                                                                      \
-600 : '600', # CXCursor_ModuleImportDecl (A module import declaration)         \
-})
 
 # vim: set ts=2 sts=2 sw=2 expandtab :

@@ -25,6 +25,7 @@
     "qf": 1,
     "notes": 1,
     "markdown": 1,
+    "netrw": 1,
     "unite": 1,
     "text": 1,
     "vimwiki": 1,
@@ -38,5 +39,9 @@
   "csharp_server_port": 0,
   "hmac_secret": "",
   "server_keep_logfiles": 0,
-  "gocode_binary_path": ""
+  "gocode_binary_path": "",
+  "godef_binary_path": "",
+  "rust_src_path": "",
+  "racerd_binary_path": "",
+  "python_binary_path": ""
 }

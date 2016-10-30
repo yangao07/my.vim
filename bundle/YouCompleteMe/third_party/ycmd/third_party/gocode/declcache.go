@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -24,7 +25,7 @@ type package_import struct {
 
 // Parses import declarations until the first non-import declaration and fills
 // `packages` array with import information.
-func collect_package_imports(filename string, decls []ast.Decl, context build.Context) []package_import {
+func collect_package_imports(filename string, decls []ast.Decl, context *package_lookup_context) []package_import {
 	pi := make([]package_import, 0, 16)
 	for _, decl := range decls {
 		if gd, ok := decl.(*ast.GenDecl); ok && gd.Tok == token.IMPORT {
@@ -60,10 +61,10 @@ type decl_file_cache struct {
 	filescope *scope
 
 	fset    *token.FileSet
-	context build.Context
+	context *package_lookup_context
 }
 
-func new_decl_file_cache(name string, context build.Context) *decl_file_cache {
+func new_decl_file_cache(name string, context *package_lookup_context) *decl_file_cache {
 	return &decl_file_cache{
 		name:    name,
 		context: context,
@@ -147,7 +148,7 @@ func append_to_top_decls(decls map[string]*decl, decl ast.Decl, scope *scope) {
 	})
 }
 
-func abs_path_for_package(filename, p string, context build.Context) (string, bool) {
+func abs_path_for_package(filename, p string, context *package_lookup_context) (string, bool) {
 	dir, _ := filepath.Split(filename)
 	if len(p) == 0 {
 		return "", false
@@ -164,7 +165,7 @@ func abs_path_for_package(filename, p string, context build.Context) (string, bo
 
 func path_and_alias(imp *ast.ImportSpec) (string, string) {
 	path := ""
-	if imp.Path != nil {
+	if imp.Path != nil && len(imp.Path.Value) > 0 {
 		path = string(imp.Path.Value)
 		path = path[1 : len(path)-1]
 	}
@@ -197,7 +198,7 @@ func autobuild(p *build.Package) error {
 		return build_package(p)
 	}
 	pt := ps.ModTime()
-	fs, err := readdir(p.Dir)
+	fs, err := readdir_lstat(p.Dir)
 	if err != nil {
 		return err
 	}
@@ -224,9 +225,23 @@ func build_package(p *build.Package) error {
 		log.Printf("package object: %s", p.PkgObj)
 		log.Printf("package source dir: %s", p.Dir)
 		log.Printf("package source files: %v", p.GoFiles)
+		log.Printf("GOPATH: %v", g_daemon.context.GOPATH)
+		log.Printf("GOROOT: %v", g_daemon.context.GOROOT)
 	}
+	env := os.Environ()
+	for i, v := range env {
+		if strings.HasPrefix(v, "GOPATH=") {
+			env[i] = "GOPATH=" + g_daemon.context.GOPATH
+		} else if strings.HasPrefix(v, "GOROOT=") {
+			env[i] = "GOROOT=" + g_daemon.context.GOROOT
+		}
+	}
+
+	cmd := exec.Command("go", "install", p.ImportPath)
+	cmd.Env = env
+
 	// TODO: Should read STDERR rather than STDOUT.
-	out, err := exec.Command("go", "install", p.ImportPath).Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return err
 	}
@@ -236,24 +251,37 @@ func build_package(p *build.Package) error {
 	return nil
 }
 
+// executes autobuild function if autobuild option is enabled, logs error and
+// ignores it
+func try_autobuild(p *build.Package) {
+	if g_config.Autobuild {
+		err := autobuild(p)
+		if err != nil && *g_debug {
+			log.Printf("Autobuild error: %s\n", err)
+		}
+	}
+}
+
 func log_found_package_maybe(imp, pkgpath string) {
 	if *g_debug {
 		log.Printf("Found %q at %q\n", imp, pkgpath)
 	}
 }
 
-func log_build_context(context build.Context) {
+func log_build_context(context *package_lookup_context) {
 	log.Printf(" GOROOT: %s\n", context.GOROOT)
 	log.Printf(" GOPATH: %s\n", context.GOPATH)
 	log.Printf(" GOOS: %s\n", context.GOOS)
 	log.Printf(" GOARCH: %s\n", context.GOARCH)
+	log.Printf(" BzlProjectRoot: %q\n", context.BzlProjectRoot)
+	log.Printf(" GBProjectRoot: %q\n", context.GBProjectRoot)
 	log.Printf(" lib-path: %q\n", g_config.LibPath)
 }
 
 // find_global_file returns the file path of the compiled package corresponding to the specified
 // import, and a boolean stating whether such path is valid.
 // TODO: Return only one value, possibly empty string if not found.
-func find_global_file(imp string, context build.Context) (string, bool) {
+func find_global_file(imp string, context *package_lookup_context) (string, bool) {
 	// gocode synthetically generates the builtin package
 	// "unsafe", since the "unsafe.a" package doesn't really exist.
 	// Thus, when the user request for the package "unsafe" we
@@ -283,14 +311,83 @@ func find_global_file(imp string, context build.Context) (string, bool) {
 		}
 	}
 
-	p, err := context.Import(imp, "", build.AllowBinary|build.FindOnly)
-	if err == nil {
-		if g_config.Autobuild {
-			err = autobuild(p)
-			if err != nil && *g_debug {
-				log.Printf("Autobuild error: %s\n", err)
+	// gb-specific lookup mode, only if the root dir was found
+	if g_config.PackageLookupMode == "gb" && context.GBProjectRoot != "" {
+		root := context.GBProjectRoot
+		pkg_path := filepath.Join(root, "pkg", context.GOOS+"-"+context.GOARCH, pkgfile)
+		if file_exists(pkg_path) {
+			log_found_package_maybe(imp, pkg_path)
+			return pkg_path, true
+		}
+	}
+
+	// bzl-specific lookup mode, only if the root dir was found
+	if g_config.PackageLookupMode == "bzl" && context.BzlProjectRoot != "" {
+		var root, impath string
+		if strings.HasPrefix(imp, g_config.CustomPkgPrefix+"/") {
+			root = filepath.Join(context.BzlProjectRoot, "bazel-bin")
+			impath = imp[len(g_config.CustomPkgPrefix)+1:]
+		} else if g_config.CustomVendorDir != "" {
+			// Try custom vendor dir.
+			root = filepath.Join(context.BzlProjectRoot, "bazel-bin", g_config.CustomVendorDir)
+			impath = imp
+		}
+
+		if root != "" && impath != "" {
+			// There might be more than one ".a" files in the pkg path with bazel.
+			// But the best practice is to keep one go_library build target in each
+			// pakcage directory so that it follows the standard Go package
+			// structure. Thus here we assume there is at most one ".a" file existing
+			// in the pkg path.
+			if d, err := os.Open(filepath.Join(root, impath)); err == nil {
+				defer d.Close()
+
+				if fis, err := d.Readdir(-1); err == nil {
+					for _, fi := range fis {
+						if !fi.IsDir() && filepath.Ext(fi.Name()) == ".a" {
+							pkg_path := filepath.Join(root, impath, fi.Name())
+							log_found_package_maybe(imp, pkg_path)
+							return pkg_path, true
+						}
+					}
+				}
 			}
 		}
+	}
+
+	if context.CurrentPackagePath != "" {
+		// Try vendor path first, see GO15VENDOREXPERIMENT.
+		// We don't check this environment variable however, seems like there is
+		// almost no harm in doing so (well.. if you experiment with vendoring,
+		// gocode will fail after enabling/disabling the flag, and you'll be
+		// forced to get rid of vendor binaries). But asking users to set this
+		// env var is up will bring more trouble. Because we also need to pass
+		// it from client to server, make sure their editors set it, etc.
+		// So, whatever, let's just pretend it's always on.
+		package_path := context.CurrentPackagePath
+		for {
+			limp := filepath.Join(package_path, "vendor", imp)
+			if p, err := context.Import(limp, "", build.AllowBinary|build.FindOnly); err == nil {
+				try_autobuild(p)
+				if file_exists(p.PkgObj) {
+					log_found_package_maybe(imp, p.PkgObj)
+					return p.PkgObj, true
+				}
+			}
+			if package_path == "" {
+				break
+			}
+			next_path := filepath.Dir(package_path)
+			// let's protect ourselves from inf recursion here
+			if next_path == package_path {
+				break
+			}
+			package_path = next_path
+		}
+	}
+
+	if p, err := context.Import(imp, "", build.AllowBinary|build.FindOnly); err == nil {
+		try_autobuild(p)
 		if file_exists(p.PkgObj) {
 			log_found_package_maybe(imp, p.PkgObj)
 			return p.PkgObj, true
@@ -318,13 +415,84 @@ func package_name(file *ast.File) string {
 // Thread-safe collection of DeclFileCache entities.
 //-------------------------------------------------------------------------
 
+type package_lookup_context struct {
+	build.Context
+	BzlProjectRoot     string
+	GBProjectRoot      string
+	CurrentPackagePath string
+}
+
+// gopath returns the list of Go path directories.
+func (ctxt *package_lookup_context) gopath() []string {
+	var all []string
+	for _, p := range filepath.SplitList(ctxt.GOPATH) {
+		if p == "" || p == ctxt.GOROOT {
+			// Empty paths are uninteresting.
+			// If the path is the GOROOT, ignore it.
+			// People sometimes set GOPATH=$GOROOT.
+			// Do not get confused by this common mistake.
+			continue
+		}
+		if strings.HasPrefix(p, "~") {
+			// Path segments starting with ~ on Unix are almost always
+			// users who have incorrectly quoted ~ while setting GOPATH,
+			// preventing it from expanding to $HOME.
+			// The situation is made more confusing by the fact that
+			// bash allows quoted ~ in $PATH (most shells do not).
+			// Do not get confused by this, and do not try to use the path.
+			// It does not exist, and printing errors about it confuses
+			// those users even more, because they think "sure ~ exists!".
+			// The go command diagnoses this situation and prints a
+			// useful error.
+			// On Windows, ~ is used in short names, such as c:\progra~1
+			// for c:\program files.
+			continue
+		}
+		all = append(all, p)
+	}
+	return all
+}
+
+func (ctxt *package_lookup_context) pkg_dirs() []string {
+	pkgdir := fmt.Sprintf("%s_%s", ctxt.GOOS, ctxt.GOARCH)
+
+	var all []string
+	if ctxt.GOROOT != "" {
+		dir := filepath.Join(ctxt.GOROOT, "pkg", pkgdir)
+		if is_dir(dir) {
+			all = append(all, dir)
+		}
+	}
+
+	switch g_config.PackageLookupMode {
+	case "go":
+		for _, p := range ctxt.gopath() {
+			dir := filepath.Join(p, "pkg", pkgdir)
+			if is_dir(dir) {
+				all = append(all, dir)
+			}
+		}
+	case "gb":
+		if ctxt.GBProjectRoot != "" {
+			pkgdir := fmt.Sprintf("%s-%s", ctxt.GOOS, ctxt.GOARCH)
+			dir := filepath.Join(ctxt.GBProjectRoot, "pkg", pkgdir)
+			if is_dir(dir) {
+				all = append(all, dir)
+			}
+		}
+	case "bzl":
+		// TODO: Support bazel mode
+	}
+	return all
+}
+
 type decl_cache struct {
 	cache   map[string]*decl_file_cache
-	context build.Context
+	context *package_lookup_context
 	sync.Mutex
 }
 
-func new_decl_cache(context build.Context) *decl_cache {
+func new_decl_cache(context *package_lookup_context) *decl_cache {
 	return &decl_cache{
 		cache:   make(map[string]*decl_file_cache),
 		context: context,

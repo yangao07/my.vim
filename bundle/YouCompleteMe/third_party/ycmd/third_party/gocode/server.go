@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
+	"time"
 )
 
 func do_server() int {
@@ -55,7 +57,7 @@ type daemon struct {
 	autocomplete *auto_complete_context
 	pkgcache     package_cache
 	declcache    *decl_cache
-	context      build.Context
+	context      package_lookup_context
 }
 
 func new_daemon(network, address string) *daemon {
@@ -69,14 +71,14 @@ func new_daemon(network, address string) *daemon {
 
 	d.cmd_in = make(chan int, 1)
 	d.pkgcache = new_package_cache()
-	d.declcache = new_decl_cache(d.context)
+	d.declcache = new_decl_cache(&d.context)
 	d.autocomplete = new_auto_complete_context(d.pkgcache, d.declcache)
 	return d
 }
 
 func (this *daemon) drop_cache() {
 	this.pkgcache = new_package_cache()
-	this.declcache = new_decl_cache(this.context)
+	this.declcache = new_decl_cache(&this.context)
 	this.autocomplete = new_auto_complete_context(this.pkgcache, this.declcache)
 }
 
@@ -95,17 +97,24 @@ func (this *daemon) loop() {
 			conn_in <- c
 		}
 	}()
+
+	timeout := time.Duration(g_config.CloseTimeout) * time.Second
+	countdown := time.NewTimer(timeout)
+
 	for {
 		// handle connections or server CMDs (currently one CMD)
 		select {
 		case c := <-conn_in:
 			rpc.ServeConn(c)
+			countdown.Reset(timeout)
 			runtime.GC()
 		case cmd := <-this.cmd_in:
 			switch cmd {
 			case daemon_close:
 				return
 			}
+		case <-countdown.C:
+			return
 		}
 	}
 }
@@ -137,9 +146,41 @@ func server_auto_complete(file []byte, filename string, cursor int, context_pack
 	}()
 	// TODO: Probably we don't care about comparing all the fields, checking GOROOT and GOPATH
 	// should be enough.
-	if !reflect.DeepEqual(g_daemon.context, context) {
+	if !reflect.DeepEqual(g_daemon.context.Context, context.Context) {
 		g_daemon.context = context
 		g_daemon.drop_cache()
+	}
+	switch g_config.PackageLookupMode {
+	case "bzl":
+		// when package lookup mode is bzl, we set GOPATH to "" explicitly and
+		// BzlProjectRoot becomes valid (or empty)
+		var err error
+		g_daemon.context.GOPATH = ""
+		g_daemon.context.BzlProjectRoot, err = find_bzl_project_root(g_config.LibPath, filename)
+		if *g_debug && err != nil {
+			log.Printf("Bzl project root not found: %s", err)
+		}
+	case "gb":
+		// when package lookup mode is gb, we set GOPATH to "" explicitly and
+		// GBProjectRoot becomes valid (or empty)
+		var err error
+		g_daemon.context.GOPATH = ""
+		g_daemon.context.GBProjectRoot, err = find_gb_project_root(filename)
+		if *g_debug && err != nil {
+			log.Printf("Gb project root not found: %s", err)
+		}
+	case "go":
+		// get current package path for GO15VENDOREXPERIMENT hack
+		g_daemon.context.CurrentPackagePath = ""
+		pkg, err := g_daemon.context.ImportDir(filepath.Dir(filename), build.FindOnly)
+		if err == nil {
+			if *g_debug {
+				log.Printf("Go project path: %s", pkg.ImportPath)
+			}
+			g_daemon.context.CurrentPackagePath = pkg.ImportPath
+		} else if *g_debug {
+			log.Printf("Go project path not found: %s", err)
+		}
 	}
 	if *g_debug {
 		var buf bytes.Buffer
@@ -169,18 +210,6 @@ func server_auto_complete(file []byte, filename string, cursor int, context_pack
 	return candidates, d
 }
 
-func server_cursor_type_pkg(file []byte, filename string, cursor int) (typ, pkg string) {
-	defer func() {
-		if err := recover(); err != nil {
-			print_backtrace(err)
-
-			// drop cache
-			g_daemon.drop_cache()
-		}
-	}()
-	return g_daemon.autocomplete.cursor_type_pkg(file, filename, cursor)
-}
-
 func server_close(notused int) int {
 	g_daemon.close()
 	return 0
@@ -202,5 +231,7 @@ func server_set(key, value string) string {
 	} else if value == "\x00" {
 		return g_config.list_option(key)
 	}
+	// drop cache on settings changes
+	g_daemon.drop_cache()
 	return g_config.set_option(key, value)
 }

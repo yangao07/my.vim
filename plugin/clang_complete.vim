@@ -23,6 +23,9 @@ let b:my_changedtick = 0
 " not during a function call.
 let s:plugin_path = escape(expand('<sfile>:p:h'), '\')
 
+" Older versions of Vim can't check if a map was made with <expr>
+let s:use_maparg = v:version > 703 || (v:version == 703 && has('patch32'))
+
 function! s:ClangCompleteInit()
   let l:bufname = bufname("%")
   if l:bufname == ''
@@ -77,6 +80,10 @@ function! s:ClangCompleteInit()
     echoe 'clang_complete: conceal feature not available but requested'
   endif
 
+  if !exists('g:clang_complete_optional_args_in_snippets')
+    let g:clang_complete_optional_args_in_snippets = 0
+  endif
+
   if !exists('g:clang_trailing_placeholder')
     let g:clang_trailing_placeholder = 0
   endif
@@ -106,11 +113,15 @@ function! s:ClangCompleteInit()
   endif
 
   if !exists('g:clang_auto_user_options')
-    let g:clang_auto_user_options = 'path, .clang_complete'
+    let g:clang_auto_user_options = '.clang_complete, path'
   endif
 
   if !exists('g:clang_jumpto_declaration_key')
     let g:clang_jumpto_declaration_key = '<C-]>'
+  endif
+
+  if !exists('g:clang_jumpto_declaration_in_preview_key')
+    let g:clang_jumpto_declaration_in_preview_key = '<C-W>]'
   endif
 
   if !exists('g:clang_jumpto_back_key')
@@ -119,6 +130,19 @@ function! s:ClangCompleteInit()
 
   if !exists('g:clang_make_default_keymappings')
     let g:clang_make_default_keymappings = 1
+  endif
+
+  if !exists('g:clang_restore_cr_imap')
+    let g:clang_restore_cr_imap = 'iunmap <buffer> <CR>'
+  endif
+
+  if !exists('g:clang_omnicppcomplete_compliance')
+    let g:clang_omnicppcomplete_compliance = 0
+  endif
+
+  if g:clang_omnicppcomplete_compliance == 1
+    let g:clang_complete_auto = 0
+    let g:clang_make_default_keymappings = 0
   endif
 
   call LoadUserOptions()
@@ -130,7 +154,7 @@ function! s:ClangCompleteInit()
     let b:clang_parameters = '-x objective-c'
   endif
 
-  if &filetype == 'cpp' || &filetype == 'objcpp'
+  if &filetype == 'cpp' || &filetype == 'objcpp' || &filetype =~ 'cpp.*' || &filetype =~ 'objcpp.*'
     let b:clang_parameters .= '++'
   endif
 
@@ -159,8 +183,13 @@ function! s:ClangCompleteInit()
     inoremap <expr> <buffer> . <SID>CompleteDot()
     inoremap <expr> <buffer> > <SID>CompleteArrow()
     inoremap <expr> <buffer> : <SID>CompleteColon()
-    execute "nnoremap <buffer> <silent> " . g:clang_jumpto_declaration_key . " :call <SID>GotoDeclaration()<CR><Esc>"
+    execute "nnoremap <buffer> <silent> " . g:clang_jumpto_declaration_key . " :call <SID>GotoDeclaration(0)<CR><Esc>"
+    execute "nnoremap <buffer> <silent> " . g:clang_jumpto_declaration_in_preview_key . " :call <SID>GotoDeclaration(1)<CR><Esc>"
     execute "nnoremap <buffer> <silent> " . g:clang_jumpto_back_key . " <C-O>"
+  endif
+
+  if g:clang_omnicppcomplete_compliance == 1
+    inoremap <expr> <buffer> <C-X><C-U> <SID>LaunchCompletion()
   endif
 
   " Force menuone. Without it, when there's only one completion result,
@@ -182,7 +211,10 @@ function! s:ClangCompleteInit()
   endif
 
   setlocal completefunc=ClangComplete
-  setlocal omnifunc=ClangComplete
+  if g:clang_omnicppcomplete_compliance == 0
+    setlocal omnifunc=ClangComplete
+  endif
+
 endfunction
 
 function! LoadUserOptions()
@@ -210,29 +242,92 @@ function! LoadUserOptions()
   endfor
 endfunction
 
+" Used to tell if a flag needs a space between the flag and file
+let s:flagInfo = {
+\   '-I': {
+\     'pattern': '-I\s*',
+\     'output': '-I'
+\   },
+\   '-F': {
+\     'pattern': '-F\s*',
+\     'output': '-F'
+\   },
+\   '-iquote': {
+\     'pattern': '-iquote\s*',
+\     'output': '-iquote'
+\   },
+\   '-include': {
+\     'pattern': '-include\s\+',
+\     'output': '-include '
+\   }
+\ }
+
+let s:flagPatterns = []
+for s:flag in values(s:flagInfo)
+  let s:flagPatterns = add(s:flagPatterns, s:flag.pattern)
+endfor
+let s:flagPattern = '\%(' . join(s:flagPatterns, '\|') . '\)'
+
+
+function! s:processFilename(filename, root)
+  " Handle Unix absolute path
+  if matchstr(a:filename, '\C^[''"\\]\=/') != ''
+    let l:filename = a:filename
+  " Handle Windows absolute path
+  elseif s:isWindows() 
+       \ && matchstr(a:filename, '\C^"\=[a-zA-Z]:[/\\]') != ''
+    let l:filename = a:filename
+  " Convert relative path to absolute path
+  else
+    " If a windows file, the filename may need to be quoted.
+    if s:isWindows()
+      let l:root = substitute(a:root, '\\', '/', 'g')
+      if matchstr(a:filename, '\C^".*"\s*$') == ''
+        let l:filename = substitute(a:filename, '\C^\(.\{-}\)\s*$'
+                                            \ , '"' . l:root . '\1"', 'g')
+      else
+        " Strip first double-quote and prepend the root.
+        let l:filename = substitute(a:filename, '\C^"\(.\{-}\)"\s*$'
+                                            \ , '"' . l:root . '\1"', 'g')
+      endif
+      let l:filename = substitute(l:filename, '/', '\\', 'g')
+    else
+      " For Unix, assume the filename is already escaped/quoted correctly
+      let l:filename = shellescape(a:root) . a:filename
+    endif
+  endif
+  
+  return l:filename
+endfunction
+
 function! s:parseConfig()
   let l:local_conf = findfile('.clang_complete', getcwd() . ',.;')
   if l:local_conf == '' || !filereadable(l:local_conf)
     return
   endif
 
-  let l:root = substitute(fnamemodify(l:local_conf, ':p:h'), '\', '/', 'g')
+  let l:sep = '/'
+  if s:isWindows()
+    let l:sep = '\'
+  endif
+
+  let l:root = fnamemodify(l:local_conf, ':p:h') . l:sep
 
   let l:opts = readfile(l:local_conf)
   for l:opt in l:opts
-    " Use forward slashes only
-    let l:opt = substitute(l:opt, '\', '/', 'g')
-    " Handling of absolute path
-    if matchstr(l:opt, '\C-I\s*/') != ''
-      let l:opt = substitute(l:opt, '\C-I\s*\(/\%(\w\|\\\s\)*\)',
-            \ '-I' . '\1', 'g')
-    elseif s:isWindows() && matchstr(l:opt, '\C-I\s*[a-zA-Z]:/') != ''
-      let l:opt = substitute(l:opt, '\C-I\s*\([a-zA-Z:]/\%(\w\|\\\s\)*\)',
-            \ '-I' . '\1', 'g')
-    else
-      let l:opt = substitute(l:opt, '\C-I\s*\(\%(\w\|\.\|/\|\\\s\)*\)',
-            \ '-I' . l:root . '/\1', 'g')
+    " Ensure passed filenames are absolute. Only performed on flags which
+    " require a filename/directory as an argument, as specified in s:flagInfo
+    if matchstr(l:opt, '\C^\s*' . s:flagPattern . '\s*') != ''
+      let l:flag = substitute(l:opt, '\C^\s*\(' . s:flagPattern . '\).*'
+                            \ , '\1', 'g')
+      let l:flag = substitute(l:flag, '^\(.\{-}\)\s*$', '\1', 'g')
+      let l:filename = substitute(l:opt,
+                                \ '\C^\s*' . s:flagPattern . '\(.\{-}\)\s*$',
+                                \ '\1', 'g')
+      let l:filename = s:processFilename(l:filename, l:root)
+      let l:opt = s:flagInfo[l:flag].output . l:filename
     endif
+
     let b:clang_user_options .= ' ' . l:opt
   endfor
 endfunction
@@ -376,11 +471,21 @@ function! ClangComplete(findstart, base)
     python timer.registerEvent("Load into vimscript")
 
     if g:clang_make_default_keymappings == 1
+      if s:use_maparg
+        let s:old_cr = maparg('<CR>', 'i', 0, 1)
+      else
+        let s:old_snr = matchstr(maparg('<CR>', 'i'), '<SNR>\d\+_')
+      endif
       inoremap <expr> <buffer> <C-Y> <SID>HandlePossibleSelectionCtrlY()
       inoremap <expr> <buffer> <CR> <SID>HandlePossibleSelectionEnter()
     endif
     augroup ClangComplete
       au CursorMovedI <buffer> call <SID>TriggerSnippet()
+      if exists('##CompleteDone')
+        au CompleteDone,InsertLeave <buffer> call <SID>StopMonitoring()
+      else
+        au InsertLeave <buffer> call <SID>StopMonitoring()
+      endif
     augroup end
     let b:snippet_chosen = 0
 
@@ -408,6 +513,42 @@ function! s:HandlePossibleSelectionCtrlY()
   return "\<C-Y>"
 endfunction
 
+function! s:StopMonitoring()
+  if b:snippet_chosen
+    call s:TriggerSnippet()
+    return
+  endif
+
+  if g:clang_make_default_keymappings == 1
+    " Restore original return and Ctrl-Y key mappings
+
+    if s:use_maparg
+      if get(s:old_cr, 'buffer', 0)
+        silent! execute s:old_cr.mode.
+            \ (s:old_cr.noremap ? 'noremap '  : 'map').
+            \ (s:old_cr.buffer  ? '<buffer> ' : '').
+            \ (s:old_cr.expr    ? '<expr> '   : '').
+            \ (s:old_cr.nowait  ? '<nowait> ' : '').
+            \ s:old_cr.lhs.' '.
+            \ substitute(s:old_cr.rhs, '<SID>', '<SNR>'.s:old_cr.sid.'_', 'g')
+      else
+        silent! iunmap <buffer> <CR>
+      endif
+    else
+      silent! execute substitute(g:clang_restore_cr_imap, '<SID>', s:old_snr, 'g')
+    endif
+
+    silent! iunmap <buffer> <C-Y>
+  endif
+
+  augroup ClangComplete
+    au! CursorMovedI,InsertLeave <buffer>
+    if exists('##CompleteDone')
+      au! CompleteDone <buffer>
+    endif
+  augroup END
+endfunction
+
 function! s:TriggerSnippet()
   " Dont bother doing anything until we're sure the user exited the menu
   if !b:snippet_chosen
@@ -415,11 +556,8 @@ function! s:TriggerSnippet()
   endif
 
   " Stop monitoring as we'll trigger a snippet
-  silent! iunmap <buffer> <C-Y>
-  silent! iunmap <buffer> <CR>
-  augroup ClangComplete
-    au! CursorMovedI <buffer>
-  augroup end
+  let b:snippet_chosen = 0
+  call s:StopMonitoring()
 
   " Trigger the snippet
   python snippetsTrigger()
@@ -481,9 +619,9 @@ function! s:CompleteColon()
   return ':' . s:LaunchCompletion()
 endfunction
 
-function! s:GotoDeclaration()
+function! s:GotoDeclaration(preview)
   try
-    python gotoDeclaration()
+    python gotoDeclaration(vim.eval('a:preview') == '1')
   catch /^Vim\%((\a\+)\)\=:E37/
     echoe "The current file is not saved, and 'hidden' is not set."
           \ "Either save the file or add 'set hidden' in your vimrc."
@@ -494,6 +632,16 @@ endfunction
 " May be used in a mapping to update the quickfix window.
 function! g:ClangUpdateQuickFix()
   call s:DoPeriodicQuickFix()
+  return ''
+endfunction
+
+function! g:ClangGotoDeclaration()
+  call s:GotoDeclaration(0)
+  return ''
+endfunction
+
+function! g:ClangGotoDeclarationPreview()
+  call s:GotoDeclaration(1)
   return ''
 endfunction
 
