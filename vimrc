@@ -167,6 +167,7 @@ nmap F :call Mydict()<CR>
 let g:clang_use_library=1
 let g:clang_debug=1
 let g:clang_library_path="/usr/lib"
+"let g:clang_library_path="/home/yangao/.vim/bundle/YouCompleteMe/third_party/ycmd"
 let g:clang_complete_copen=1
 
 " tlist
@@ -266,7 +267,7 @@ set statusline+=%{EchoFuncGetStatusLine()}
 "set statusline=%<%F%h%m%r%h%w%y\ %{&ff}\ %{strftime(\"%c\",getftime(expand(\"%:p\")))}%=\ lin:%l\,%L\ col:%c%V\ pos:%o\ ascii:%b\ %P
 hi StatuslineBufNr     cterm=none    ctermbg=cyan   ctermfg=black   gui=none guibg=#840c0c guifg=#ffffff
 hi StatuslineFlag      cterm=none    ctermbg=white  ctermfg=red     gui=none guibg=#bc5b4c guifg=#ffffff
-hi StatuslinePath      cterm=none    ctermbg=cyan   ctermfg=yellow   gui=none guibg=#8d6c47 guifg=black
+hi StatuslinePath      cterm=none    ctermbg=cyan   ctermfg=black gui=none guibg=#8d6c47 guifg=black
 "hi StatuslineFileName  cterm=none    ctermbg=blue   ctermfg=white   gui=none guibg=#d59159 guifg=black
 hi StatuslineFileEnc   cterm=none    ctermbg=yellow ctermfg=black   gui=none guibg=#ffff77 guifg=black
 hi StatuslineFileType  cterm=bold    ctermbg=black  ctermfg=white   gui=none guibg=#acff84 guifg=black
