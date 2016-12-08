@@ -1,5 +1,5 @@
 # my.vim
-## Configuration
+## Configuration (For C/C++ and Python)
 ###1. install vim, enable python and xterm_clipboard（+python, +xterm_clipboard）
 ```
 sudo apt-get install vim-gtk-py2
