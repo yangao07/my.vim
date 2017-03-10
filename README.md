@@ -19,7 +19,8 @@ mv my.vim ~/.vim
 ```
 ###5. vim command :BundleInstall
 ```
-vim 
+git clone https://github.com/VundleVim/Vundle.vim.git ~/.vim/bundle/vundle
+vim
 :BundleInstall
 ```
 ###6. install YouCompleteMe
