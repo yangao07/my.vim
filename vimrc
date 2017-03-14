@@ -149,20 +149,6 @@ au BufReadPost *
  \ exe "normal! g'\"" |
  \ endif
 
-"sdcv
-function! Mydict()
-	let expl=system('sdcv -n ' .
-		\  expand("<cword>"))
-	windo if
-		\ expand("%")=="diCt-tmp" |
-		\ q!|endif
-	25vsp diCt-tmp
-	setlocal buftype=nofile bufhidden=hide noswapfile
-	1s/^/\=expl/
-	1
-endfunction
-nmap F :call Mydict()<CR>
-
 "clang
 let g:clang_use_library=1
 let g:clang_debug=1
