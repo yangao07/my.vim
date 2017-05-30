@@ -42,8 +42,9 @@ let Tlist_File_Fold_Auto_Close=1
 "let g:winManagerWindowLayout='FileExplorer|TagList,BufExplorer'
 "let g:winManagerWindowLayout='NERDTree|TagList,BufExplorer'
 
-nmap wm :WMToggle<CR>
 nmap nt :NERDTreeToggle<CR>
+nmap wm :WMToggle<CR>
+
 
 
 "nnoremap <silent>  :TlistOpen<CR>
