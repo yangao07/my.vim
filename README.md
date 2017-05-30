@@ -4,7 +4,7 @@
 ```
 sudo apt-get install vim-gtk3
 ```
-### 2. install python3-dev and other dependencie
+### 2. install python3-dev and other dependencies
 ```
 sudo apt-get install python3-dev python-dev ctags cscope llvm clang cmake
 ```
