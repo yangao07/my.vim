@@ -90,7 +90,7 @@ endif
 
 " If using a dark background within the editing area and syntax highlighting
 " turn on this option as well
-"set background=dark
+set background=dark
 
 " Uncomment the following to have Vim jump to the last position when
 " reopening a file
@@ -110,7 +110,7 @@ set showcmd		" Show (partial) command in status line.
 set showmatch		" Show matching brackets.
 "set ignorecase		" Do case insensitive matching
 set smartcase		" Do smart case matching
-set incsearch		" Incremental search
+"set incsearch		" Incremental search
 if &t_Co > 2 || has("gui_running")
 	  syntax on
 	    set hlsearch
@@ -242,7 +242,7 @@ let g:ycm_complete_in_comments=1
 highlight YcmErrorSection ctermbg=black
 highlight YcmErrorline ctermbg=blue
 "colorscheme
-"set t_Co=256  
+set t_Co=256  
 "statusline
 "Format the statusline
 "Nice statusbar
