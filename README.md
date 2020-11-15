@@ -23,6 +23,11 @@ git clone https://github.com/VundleVim/Vundle.vim.git ~/.vim/bundle/vundle
 vim
 :BundleInstall
 ```
+In case meet error: `YouCompleteMe unavailable: requires Vim 8.1.2269+`, checkout `YouCompleteMe` to an older version, then install.
+```
+cd ~/.vim/bundle/YouCompleteMe
+git checkout d98f896
+```
 ### 6. install YouCompleteMe
 #### NOTE: modify install.py 
 #### #!/usr/bin/evn python => #!/usr/bin/evn python3

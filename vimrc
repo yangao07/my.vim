@@ -19,7 +19,7 @@ runtime! debian.vim
 set cursorline	
 "hi CursorLine cterm=NONE ctermbg=white ctermfg=black guibg=darkred guifg=white
 hi CursorColumn cterm=NONE ctermbg=white ctermfg=darkred guibg=darkred guifg=white
-let helptags="usr/share/vim/vim74/doc"
+let helptags="/usr/share/vim/vim80/doc"
 set helplang=cn
 set mouse=a
 set autoindent
@@ -231,8 +231,7 @@ nmap E :Errors<CR>
 nmap en :lnext<CR>zO
 nmap ep :lprevious<CR>zO
 "YouCompleteMe
-"let g:ycm_global_ycm_extra_conf='~/.vim/bundle/YouCompleteMe/third_party/ycmd/examples/.ycm_extra_conf.py'
-let g:ycm_global_ycm_extra_conf='~/.vim/bundle/YouCompleteMe/third_party/ycmd/cpp/ycm/.ycm_extra_conf.py'
+let g:ycm_global_ycm_extra_conf='~/.vim/bundle/YouCompleteMe/third_party/ycmd/.ycm_extra_conf.py'
 let g:ycm_collect_identifiers_from_tags_files=1
 let g:ycm_seed_identifiers_with_syntax=1
 let g:ycm_confirm_extra_conf=0
