@@ -6,7 +6,7 @@ sudo apt-get install vim-gtk3
 ```
 ### 2. install python3-dev and other dependencies
 ```
-sudo apt-get install python3-dev python-dev ctags cscope llvm clang cmake
+sudo apt-get install python3-dev ctags cscope llvm clang cmake build-essential vim-nox
 ```
 ### 3. cp libclang.so /usr/lib/llvm => /usr/lib
 ```
@@ -23,17 +23,10 @@ git clone https://github.com/VundleVim/Vundle.vim.git ~/.vim/bundle/vundle
 vim
 :BundleInstall
 ```
-In case meet error: `YouCompleteMe unavailable: requires Vim 8.1.2269+`, checkout `YouCompleteMe` to an older version, then install.
-```
-cd ~/.vim/bundle/YouCompleteMe
-git checkout d98f896
-```
 ### 6. install YouCompleteMe
-#### NOTE: modify install.py 
-#### #!/usr/bin/evn python => #!/usr/bin/evn python3
 ```
 cd ~/.vim/bundle/YouCompleteMe
-./install.py --clang-completer
+python3 install.py --clangd-completer
 ```
 ### 7. set .ycm_extra_conf.py
 vimrc:
@@ -72,7 +65,7 @@ vim
 ### 5. install YouCompleteMe
 ```
 cd ~/.vim/bundle/YouCompleteMe
-./install.py --clang-completer
+python3 install.py --clangd-completer
 ```
 ### 6. set .ycm_extra_conf.py
 vimrc:
