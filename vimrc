@@ -238,6 +238,7 @@ let g:ycm_confirm_extra_conf=0
 let g:ycm_always_populate_location_list=1
 let g:ycm_min_num_of_chars_for_completion=2
 let g:ycm_complete_in_comments=1
+let g:ycm_auto_hover=''
 highlight YcmErrorSection ctermbg=black
 highlight YcmErrorline ctermbg=blue
 "colorscheme
