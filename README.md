@@ -26,7 +26,7 @@ vim
 ### 6. install YouCompleteMe
 ```
 cd ~/.vim/bundle/YouCompleteMe
-python3 install.py --clangd-completer
+/usr/bin/python3 install.py --clangd-completer  # NOT use conda'python
 ```
 ### 7. set .ycm_extra_conf.py
 vimrc:
