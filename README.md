@@ -6,7 +6,7 @@ sudo apt-get install vim-gtk3
 ```
 ### 2. install python3-dev and other dependencies
 ```
-sudo apt-get install python3-dev ctags cscope llvm clang cmake build-essential vim-nox
+sudo apt-get install python3-dev universal-ctags cscope llvm clang cmake build-essential vim-nox
 ```
 ### 3. cp libclang.so /usr/lib/llvm => /usr/lib
 ```
