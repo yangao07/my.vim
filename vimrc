@@ -57,7 +57,7 @@ set rtp+=~/.vim/bundle/vundle
 call vundle#rc()
 Bundle 'gmarik/vundle'
 Bundle "scrooloose/syntastic"
-Bundle "Valloric/YouCompleteMe"
+"Bundle "Valloric/YouCompleteMe"
 "Bundle "bling/vim-airline" 
 
 "设置自动补全
